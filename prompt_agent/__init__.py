@@ -1,12 +1,15 @@
 import json, re, os
+from pathlib import Path
 
 from configs import AVAILABLE_LLMs
 from openai import OpenAI
 from utils import print_message
 
-json_specification = json.load(
-    open(f"{os.getcwd()}/prompt_agent/WizardLAMP/template_schema.json")
-)
+# Get the directory where this file is located
+_current_dir = Path(__file__).parent
+_json_path = _current_dir / "WizardLAMP" / "template_schema.json"
+
+json_specification = json.load(open(_json_path))
 
 # agent_profile = f"""You are a helpful assistant.
 # # #JSON SPECIFICATION SCHEMA#

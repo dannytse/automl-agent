@@ -1,9 +1,11 @@
+import os
+
 class Configs:
-    OPENAI_KEY = ""  # your openai's account api key
-    HF_KEY = ""
-    PWC_KEY = ""
-    SEARCHAPI_API_KEY = ""
-    TAVILY_API_KEY = ""
+    OPENAI_KEY = os.getenv("OPENAI_API_KEY", "")
+    HF_KEY = os.getenv("HF_TOKEN", os.getenv("HUGGINGFACE_TOKEN", ""))
+    PWC_KEY = os.getenv("PWC_KEY", "")
+    SEARCHAPI_API_KEY = os.getenv("SEARCHAPI_API_KEY", "")
+    TAVILY_API_KEY = os.getenv("TAVILY_API_KEY", "")
 
 AVAILABLE_LLMs = {  
     "prompt-llm": {

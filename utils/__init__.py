@@ -3,10 +3,17 @@ import requests
 from bs4 import BeautifulSoup
 from urllib.parse import unquote
 from serpapi import GoogleSearch
-from kaggle.api.kaggle_api_extended import KaggleApi
+
+# Make Kaggle import optional - it requires authentication config
+try:
+    from kaggle.api.kaggle_api_extended import KaggleApi
+    KAGGLE_AVAILABLE = True
+except (ImportError, OSError):
+    KaggleApi = None
+    KAGGLE_AVAILABLE = False
 
 from openai import OpenAI
-from configs import AVAILABLE_LLMs
+from configs import AVAILABLE_LLMs, Configs
 
 
 class color:
@@ -23,6 +30,11 @@ class color:
 
 
 def get_kaggle():
+    if not KAGGLE_AVAILABLE:
+        raise ImportError(
+            "Kaggle API is not available. Please install kaggle and configure "
+            "~/.kaggle/kaggle.json, or set KAGGLE_USERNAME and KAGGLE_KEY environment variables."
+        )
     api = KaggleApi()
     api.authenticate()
     return api
@@ -75,15 +87,45 @@ def get_kaggle():
 #     ]
 
 def search_web(query):
+    """
+    Search the web using SerpAPI. Returns empty list if API key is missing or request fails.
+    """
+    api_key = Configs.SEARCHAPI_API_KEY
+    if not api_key or api_key == "":
+        print_message(
+            "system",
+            "SerpAPI key not configured. Web search will return empty results. "
+            "Set SEARCHAPI_API_KEY environment variable to enable web search."
+        )
+        return []
+    
     params = {
         "engine": "google",
         "q": query,
-        "api_key": "your api key",
+        "api_key": api_key,
     }
 
-    search = GoogleSearch(params)
-    results = search.get_dict()
-    return results["organic_results"]
+    try:
+        search = GoogleSearch(params)
+        results = search.get_dict()
+        
+        # Handle API errors
+        if "error" in results:
+            print_message(
+                "system",
+                f"SerpAPI error: {results.get('error', 'Unknown error')}. "
+                "Web search will return empty results."
+            )
+            return []
+        
+        # Return organic results if available, otherwise empty list
+        return results.get("organic_results", [])
+    except Exception as e:
+        print_message(
+            "system",
+            f"Web search failed with error: {e}. Returning empty results."
+        )
+        return []
 
 
 def print_message(sender, msg, pid=None):

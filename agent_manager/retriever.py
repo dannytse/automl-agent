@@ -1,4 +1,12 @@
-import arxivloader, json, random
+import json, random
+
+# Make arxivloader optional - only needed for arXiv retrieval
+try:
+    import arxivloader
+    ARXIV_AVAILABLE = True
+except ImportError:
+    arxivloader = None
+    ARXIV_AVAILABLE = False
 
 from pathlib import Path
 from utils import search_web, print_message, get_kaggle
@@ -7,7 +15,14 @@ from configs import AVAILABLE_LLMs
 from openai import OpenAI
 from validators import url
 
-from langchain.schema import Document
+# Handle LangChain version differences
+try:
+    from langchain_core.documents import Document
+except ImportError:
+    try:
+        from langchain.schema import Document
+    except ImportError:
+        from langchain_core.documents import Document
 from langchain_community.document_loaders import AsyncHtmlLoader, PDFMinerLoader
 from langchain_community.document_transformers import BeautifulSoupTransformer
 
@@ -241,6 +256,10 @@ def retrieve_paperswithcode(
 def retrieve_arxiv(
     user_requirements: dict, user_requirement_summary: str, llm_model, client, top_k: int = 10
 ):
+    if not ARXIV_AVAILABLE:
+        print_message("manager", "arXiv retrieval not available (arxivloader not installed). Skipping...")
+        return ""
+    
     print_message("manager", "I am searching arXiv...")
 
     # genearte query
@@ -339,6 +358,17 @@ def retrieve_websearch(user_requirement_summary: str, llm_model, client, top_k: 
         "manager", f"I am searching Google using query 🔍: {search_query}."
     )
     search_results = search_web(search_query)
+    
+    # Handle empty search results
+    if not search_results:
+        print_message(
+            "manager",
+            "No web search results found. This may be due to missing SerpAPI key or API error. "
+            "Continuing without web search context."
+        )
+        # Return a message indicating no results were found
+        return "No web search results were available for this query. Please proceed with other knowledge sources."
+    
     DOMAIN_BLOCKLIST = [
         "youtube.com",
         "twitter.com",
@@ -350,10 +380,19 @@ def retrieve_websearch(user_requirement_summary: str, llm_model, client, top_k: 
     search_results = [
         result
         for result in search_results
-        if not any(domain in result["link"] for domain in DOMAIN_BLOCKLIST)
+        if isinstance(result, dict) and "link" in result
+        and not any(domain in result["link"] for domain in DOMAIN_BLOCKLIST)
     ][:top_k]
     print('Search results:', search_results)
-    urls = [link["link"] for link in search_results if url(link["link"])]
+    
+    if not search_results:
+        return "No valid web search results found after filtering."
+    
+    urls = [link["link"] for link in search_results if isinstance(link, dict) and "link" in link and url(link["link"])]
+    
+    if not urls:
+        return "No valid URLs found in search results."
+    
     loader = AsyncHtmlLoader([link for link in urls if ".pdf" not in link])
     html = loader.load()
 

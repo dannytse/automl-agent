@@ -464,7 +464,7 @@ class AgentManager:
                 if self._is_relevant(prompt) or self.verification == False:
                     # parsing user's prompt into JSON object
                     if self.user_requirements == None:
-                        self.user_requirements = parser.parse(prompt, return_json=True) # or parser.parse_openai(prompt, return_json=True)
+                        self.user_requirements = parser.parse_openai(prompt, return_json=True)
                         # check user's requirement quality (JSON schema validation)
                         self.timer['prompt_parsing'] = time.time() - start_time # end requestion verification step
                         
