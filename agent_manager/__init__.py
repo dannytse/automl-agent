@@ -305,7 +305,34 @@ class AgentManager:
         return is_pass
 
     def implement_solution(self, selected_solution):
-        with open(f"prompt_pool/{self.task}.py") as file:
+        # Find prompt_pool directory relative to this file's location
+        from pathlib import Path
+        
+        # Try multiple paths to find the prompt_pool file
+        possible_paths = [
+            # Path relative to this file (agent_manager/__init__.py -> automl-agent/prompt_pool)
+            Path(__file__).parent.parent / "prompt_pool" / f"{self.task}.py",
+            # Path relative to current working directory
+            Path(f"prompt_pool/{self.task}.py"),
+            # Path from project root
+            Path("automl-agent/prompt_pool") / f"{self.task}.py",
+            # Absolute path from current file
+            Path(__file__).parent.parent.resolve() / "prompt_pool" / f"{self.task}.py",
+        ]
+        
+        prompt_pool_path = None
+        for path in possible_paths:
+            if path.exists():
+                prompt_pool_path = path
+                break
+        
+        if prompt_pool_path is None:
+            raise FileNotFoundError(
+                f"Could not find prompt_pool/{self.task}.py. "
+                f"Tried paths: {[str(p) for p in possible_paths]}"
+            )
+        
+        with open(prompt_pool_path) as file:
             template_code = file.read()        
         # code-based execution
         ops_llama = OperationAgent(

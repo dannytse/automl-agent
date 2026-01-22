@@ -1,7 +1,7 @@
 import requests
 
 from openai import OpenAI
-from utils import get_kaggle, search_web
+from utils import get_kaggle, search_web, KAGGLE_AVAILABLE
 from utils.embeddings import chunk_and_retrieve
 from configs import AVAILABLE_LLMs
 from validators import url
@@ -77,19 +77,29 @@ def retrieve_huggingface(**kwargs):
 
 
 def retrieve_kaggle(**kwargs):
-    kaggle_api = get_kaggle()
-    if kwargs["name"] and kwargs["name"] != "":
-        model = kaggle_api.models_list(search=kwargs["name"], sort_by="voteCount")
-        if len(model['models']) > 0:
-            return model["models"][0]
-        else:
-            return False        
-    elif kwargs["family"] and kwargs["family"] != "":
-        model = kaggle_api.models_list(search=kwargs["family"], sort_by="voteCount")
-        if len(model['models']) > 0:
-            return model["models"][0]
-        else:
-            return False
+    if not KAGGLE_AVAILABLE:
+        return False
+    
+    try:
+        kaggle_api = get_kaggle()
+    except Exception:
+        return False
+    
+    try:
+        if kwargs["name"] and kwargs["name"] != "":
+            model = kaggle_api.models_list(search=kwargs["name"], sort_by="voteCount")
+            if len(model['models']) > 0:
+                return model["models"][0]
+            else:
+                return False        
+        elif kwargs["family"] and kwargs["family"] != "":
+            model = kaggle_api.models_list(search=kwargs["family"], sort_by="voteCount")
+            if len(model['models']) > 0:
+                return model["models"][0]
+            else:
+                return False
+    except Exception:
+        return False
 
 
 def retrieve_pytorch(**kwargs):

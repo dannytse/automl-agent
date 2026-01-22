@@ -9,7 +9,7 @@ except ImportError:
     ARXIV_AVAILABLE = False
 
 from pathlib import Path
-from utils import search_web, print_message, get_kaggle
+from utils import search_web, print_message, get_kaggle, KAGGLE_AVAILABLE
 from utils.embeddings import chunk_and_retrieve
 from configs import AVAILABLE_LLMs
 from openai import OpenAI
@@ -29,7 +29,23 @@ from langchain_community.document_transformers import BeautifulSoupTransformer
 def retrieve_kaggle(
     user_requirements: dict, user_requirement_summary: str, llm_model, client, top_k: int = 10
 ):
-    kaggle_api = get_kaggle()
+    if not KAGGLE_AVAILABLE:
+        print_message(
+            "manager",
+            "Kaggle retrieval not available (kaggle not installed or not configured). "
+            "Skipping Kaggle retrieval. Continuing without this knowledge source."
+        )
+        return "Kaggle retrieval not available. Please proceed with other knowledge sources."
+    
+    try:
+        kaggle_api = get_kaggle()
+    except Exception as e:
+        print_message(
+            "manager",
+            f"Kaggle API authentication failed: {e}. Skipping Kaggle retrieval."
+        )
+        return "Kaggle retrieval failed. Please proceed with other knowledge sources."
+    
     print_message("manager", "I am searching relevant Kaggle notebooks...")
 
     user_task = (
@@ -141,116 +157,134 @@ def retrieve_paperswithcode(
     )
 
     pwc_datapath = "_data/paperswithcode/"
+    datasets_path = Path(f"{pwc_datapath}/datasets.json")
+    evaluation_tables_path = Path(f"{pwc_datapath}/evaluation-tables.json")
 
-    datasets = json.loads(Path(f"{pwc_datapath}/datasets.json").read_text())
-    datasets = [dataset for dataset in datasets if len(dataset["data_loaders"]) > 0]
-    dataset_loaders = []
-    for dataset in datasets:
-        if (
-            user_task in dataset["description"].lower()
-            or user_task in [task["task"].lower() for task in dataset["tasks"]]
-            or user_area in dataset["description"].lower()
-        ):
-            dataset_loaders.append(
-                {
-                    "page_content": f"""
-                    DATASET NAME: {dataset['name']}
-                    DESCRIPTION: {dataset['description']}
-                    APPLICABLE TASKS: {','.join(task['task'] for task in dataset['tasks'])}
-                    DATA LOADERS: {dataset['data_loaders'][:3]}
-                """,
-                    "metadata": {
-                        "homepage": dataset["homepage"],
-                        "paper": dataset["paper"],
-                        "variants": dataset["variants"],
-                        "modalities": dataset["modalities"],
-                        "introduced_date": dataset["introduced_date"],
-                    },
-                }
-            )
+    # Check if PapersWithCode data files exist
+    if not datasets_path.exists() or not evaluation_tables_path.exists():
+        print_message(
+            "manager",
+            "PapersWithCode data files not found. This feature requires local data files. "
+            "Skipping PapersWithCode retrieval. Continuing without this knowledge source."
+        )
+        return "PapersWithCode data not available. Please proceed with other knowledge sources."
 
-    benchmark_tables = json.loads(
-        Path(f"{pwc_datapath}/evaluation-tables.json").read_text()
-    )
-    benchmark_tables = [
-        table for table in benchmark_tables if len(table["datasets"]) > 0
-    ]
-    benchmark_datasets = []
-    for table in benchmark_tables:
-        if (
-            user_task in table["description"].lower()
-            or user_task == table["task"].lower()
-            or user_area in [cat.lower() for cat in table["categories"]]
-            or user_area in table["description"].lower()
-        ):
-            benchmark_datasets.append(
-                {
-                    "page_content": str(table["datasets"]),
-                    "metadata": {
-                        "categories": table["categories"],
-                        "subtasks": table["subtasks"],
-                        "task": table["task"],
-                        "description": table["description"],
-                    },
-                }
-            )
-
-    del datasets
-    del benchmark_tables
-
-    benchmark_docs = [Document(**table) for table in benchmark_datasets]
-    datasets_docs = [Document(**loader) for loader in dataset_loaders]
-    
-    # generate context from PDF for summary
-    benchmark_docs = random.sample(
-        benchmark_docs, k=top_k if len(benchmark_docs) > top_k else len(benchmark_docs)
-    )
-    datasets_docs = random.sample(
-        datasets_docs, k=top_k if len(datasets_docs) > top_k else len(datasets_docs)
-    )
-    pwc_documents = benchmark_docs + datasets_docs
-    
-    context = "".join(
-        [
-            d.page_content
-            for d in chunk_and_retrieve(
-                ref_text=user_requirement_summary,
-                documents=pwc_documents,
-                top_k=top_k,
-                ranker="bm25",
-            )
-        ]
-    )
-
-    # genearte summmary
-    summary_prompt = f"""I searched the paperswithcode website to find state-of-the-art models using the keywords: {user_area} and {user_task}. Here is the result:
-    =====================
-    {context}
-    =====================
-    
-    Please summarize the given pieces of search content into a single paragraph of useful knowledge and insights. We aim to use your summary to address the following user's requirements.    
-    # User's Requirements
-    {user_requirement_summary}
-    """
-    while True:
-        try:
-            response = client.chat.completions.create(
-                model=llm_model,
-                messages=[
+    try:
+        datasets = json.loads(datasets_path.read_text())
+        datasets = [dataset for dataset in datasets if len(dataset["data_loaders"]) > 0]
+        dataset_loaders = []
+        for dataset in datasets:
+            if (
+                user_task in dataset["description"].lower()
+                or user_task in [task["task"].lower() for task in dataset["tasks"]]
+                or user_area in dataset["description"].lower()
+            ):
+                dataset_loaders.append(
                     {
-                        "role": "system",
-                        "content": "You are tasked to summarize the contents from the paperswithcode website with the goal to provide insightful results in addressing user's requirements. Please pay attention to the state-of-the-art models and their sources.",
-                    },
-                    {"role": "user", "content": summary_prompt},
-                ],
-                temperature=0.3,
-            )
-            break
-        except Exception as e:
-            print_message('system', e)
-            continue
+                        "page_content": f"""
+                        DATASET NAME: {dataset['name']}
+                        DESCRIPTION: {dataset['description']}
+                        APPLICABLE TASKS: {','.join(task['task'] for task in dataset['tasks'])}
+                        DATA LOADERS: {dataset['data_loaders'][:3]}
+                    """,
+                        "metadata": {
+                            "homepage": dataset["homepage"],
+                            "paper": dataset["paper"],
+                            "variants": dataset["variants"],
+                            "modalities": dataset["modalities"],
+                            "introduced_date": dataset["introduced_date"],
+                        },
+                    }
+                )
 
-    return response.choices[0].message.content.strip()
+        benchmark_tables = json.loads(
+            evaluation_tables_path.read_text()
+        )
+        benchmark_tables = [
+            table for table in benchmark_tables if len(table["datasets"]) > 0
+        ]
+        benchmark_datasets = []
+        for table in benchmark_tables:
+            if (
+                user_task in table["description"].lower()
+                or user_task == table["task"].lower()
+                or user_area in [cat.lower() for cat in table["categories"]]
+                or user_area in table["description"].lower()
+            ):
+                benchmark_datasets.append(
+                    {
+                        "page_content": str(table["datasets"]),
+                        "metadata": {
+                            "categories": table["categories"],
+                            "subtasks": table["subtasks"],
+                            "task": table["task"],
+                            "description": table["description"],
+                        },
+                    }
+                )
+
+        del datasets
+        del benchmark_tables
+
+        benchmark_docs = [Document(**table) for table in benchmark_datasets]
+        datasets_docs = [Document(**loader) for loader in dataset_loaders]
+        
+        # generate context from PDF for summary
+        benchmark_docs = random.sample(
+            benchmark_docs, k=top_k if len(benchmark_docs) > top_k else len(benchmark_docs)
+        )
+        datasets_docs = random.sample(
+            datasets_docs, k=top_k if len(datasets_docs) > top_k else len(datasets_docs)
+        )
+        pwc_documents = benchmark_docs + datasets_docs
+        
+        context = "".join(
+            [
+                d.page_content
+                for d in chunk_and_retrieve(
+                    ref_text=user_requirement_summary,
+                    documents=pwc_documents,
+                    top_k=top_k,
+                    ranker="bm25",
+                )
+            ]
+        )
+
+        # genearte summmary
+        summary_prompt = f"""I searched the paperswithcode website to find state-of-the-art models using the keywords: {user_area} and {user_task}. Here is the result:
+        =====================
+        {context}
+        =====================
+        
+        Please summarize the given pieces of search content into a single paragraph of useful knowledge and insights. We aim to use your summary to address the following user's requirements.    
+        # User's Requirements
+        {user_requirement_summary}
+        """
+        while True:
+            try:
+                response = client.chat.completions.create(
+                    model=llm_model,
+                    messages=[
+                        {
+                            "role": "system",
+                            "content": "You are tasked to summarize the contents from the paperswithcode website with the goal to provide insightful results in addressing user's requirements. Please pay attention to the state-of-the-art models and their sources.",
+                        },
+                        {"role": "user", "content": summary_prompt},
+                    ],
+                    temperature=0.3,
+                )
+                break
+            except Exception as e:
+                print_message('system', e)
+                continue
+
+        return response.choices[0].message.content.strip()
+    except Exception as e:
+        print_message(
+            "manager",
+            f"Error retrieving PapersWithCode data: {e}. Skipping this knowledge source."
+        )
+        return "PapersWithCode retrieval failed. Please proceed with other knowledge sources."
 
 
 def retrieve_arxiv(

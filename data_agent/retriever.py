@@ -2,7 +2,7 @@ import requests
 import re
 
 from openai import OpenAI
-from utils import get_kaggle, search_web, print_message
+from utils import get_kaggle, search_web, print_message, KAGGLE_AVAILABLE
 from utils.embeddings import chunk_and_retrieve
 from configs import AVAILABLE_LLMs
 from validators import url
@@ -168,13 +168,21 @@ def retrieve_infer(**kwargs):
             continue
 
     search_query = response.choices[0].message.content.strip().replace('"', "")
-    kaggle_api = get_kaggle()
-    datasets = kaggle_api.datasets_list(search=search_query, sort_by="votes")[:10]
-    for dataset in datasets:
-        tags = [tag["name"] for tag in dataset["tags"]]
-        if _is_applicable(tags, kwargs["modality"]):
-            return dataset
-    else:
+    
+    # Try Kaggle if available
+    if KAGGLE_AVAILABLE:
+        try:
+            kaggle_api = get_kaggle()
+            datasets = kaggle_api.datasets_list(search=search_query, sort_by="votes")[:10]
+            for dataset in datasets:
+                tags = [tag["name"] for tag in dataset["tags"]]
+                if _is_applicable(tags, kwargs["modality"]):
+                    return dataset
+        except Exception:
+            pass  # Fall through to web search if Kaggle fails
+    
+    # Fall back to web search
+    if True:
         search_results = search_web(search_query)
         DOMAIN_BLOCKLIST = [
             "youtube.com",
@@ -348,17 +356,27 @@ def retrieve_pytorch(**kwargs):
 
 
 def retrieve_kaggle(**kwargs):
-    kaggle_api = get_kaggle()
-    if kwargs["name"] and kwargs["name"] != "":
-        datasets = kaggle_api.datasets_list(search=kwargs["name"], sort_by="votes")[:10]
-        for dataset in datasets:
-            tags = [tag["name"] for tag in dataset["tags"]]
-            if _is_applicable(tags, kwargs["modality"]) or _is_applicable(
-                tags, kwargs["task"]
-            ):
-                return kaggle_api.metadata_get(*dataset["ref"].split("/"))
-        else:
-            return None
+    if not KAGGLE_AVAILABLE:
+        return None
+    
+    try:
+        kaggle_api = get_kaggle()
+    except Exception:
+        return None
+    
+    try:
+        if kwargs["name"] and kwargs["name"] != "":
+            datasets = kaggle_api.datasets_list(search=kwargs["name"], sort_by="votes")[:10]
+            for dataset in datasets:
+                tags = [tag["name"] for tag in dataset["tags"]]
+                if _is_applicable(tags, kwargs["modality"]) or _is_applicable(
+                    tags, kwargs["task"]
+                ):
+                    return kaggle_api.metadata_get(*dataset["ref"].split("/"))
+            else:
+                return None
+    except Exception:
+        return None
 
 
 def retrieve_uci(**kwargs):
